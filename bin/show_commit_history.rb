@@ -26,6 +26,15 @@ puts "Git commit log between #{opts[:from]} and #{opts[:to]}\n\n"
 
 repos_with_changes = []
 
+def git_log(repo, range, include_graph:)
+  options = {:oneline => true}
+  options.merge!(:decorate => true, :graph => true) if include_graph
+  repo.git.capturing.log(options, range)
+rescue MiniGit::GitError
+  puts "! Skipping. References for range #{range} do not exist."
+  nil
+end
+
 ManageIQ::Release.repos_for(opts).each do |repo|
   next if repo.options.has_real_releases || repo.options.skip_tag
   next if opts[:skip].include?(repo.name)
@@ -45,32 +54,36 @@ ManageIQ::Release.repos_for(opts).each do |repo|
     end
     results["other"] = []
 
-    log = repo.git.capturing.log({:oneline => true}, range)
-    log.lines.each do |line|
-      next unless (match = line.match(/Merge pull request #(\d+)\b/))
+    log = git_log(repo, range, include_graph: false)
+    if log.present?
+      log.lines.each do |line|
+        next unless (match = line.match(/Merge pull request #(\d+)\b/))
 
-      pr = github.pull_request(repo.github_repo, match[1])
-      label = pr.labels.detect { |l| results.key?(l.name) }&.name || "other"
-      results[label] << pr
-    end
-
-    changes_found = false
-
-    results.each do |label, prs|
-      next if prs.blank?
-      changes_found = true
-
-      puts "\n## #{label.titleize}\n\n" if pr_label_display
-      prs.each do |pr|
-        puts "* #{pr.title} [[##{pr.number}]](#{pr.html_url})"
+        pr = github.pull_request(repo.github_repo.sub("IBMPrivateCloud", "ManageIQ").sub("bluecf", "manageiq"), match[1])
+        label = pr.labels.detect { |l| results.key?(l.name) }&.name || "other"
+        results[label] << pr
       end
-    end
 
-    repos_with_changes << repo if changes_found
+      changes_found = false
+
+      results.each do |label, prs|
+        next if prs.blank?
+        changes_found = true
+
+        puts "\n## #{label.titleize}\n\n" if pr_label_display
+        prs.each do |pr|
+          puts "* #{pr.title} [[##{pr.number}]](#{pr.html_url})"
+        end
+      end
+
+      repos_with_changes << repo if changes_found
+    end
   when "commit"
-    output = repo.git.capturing.log({:oneline => true, :decorate => true, :graph => true}, range)
-    puts output
-    repos_with_changes << repo if output.present?
+    log = git_log(repo, range, include_graph: true)
+    if log.present?
+      puts log
+      repos_with_changes << repo
+    end
   end
   puts
 end
@@ -79,7 +92,9 @@ if opts[:summary] && repos_with_changes.any?
   puts
   puts "Here are the changes per affected repository in GitHub:"
   repos_with_changes.each do |repo|
-    puts "* [#{repo.name}](https://github.com/#{repo.github_repo}/compare/#{opts[:from]}...#{opts[:to]})"
+    from = opts[:from].split("/").last
+    to   = opts[:to].split("/").last
+    puts "* [#{repo.name}](https://github.com/#{repo.github_repo}/compare/#{from}...#{to})"
   end
   puts
 end

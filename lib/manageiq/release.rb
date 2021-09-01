@@ -135,6 +135,14 @@ module ManageIQ
       @github_api_token = token
     end
 
+    def self.github_api_endpoint
+      @github_api_endpoint ||= ENV["GITHUB_API_ENDPOINT"]
+    end
+
+    def self.github_api_endpoint=(endpoint)
+      @github_api_endpoint = endpoint
+    end
+
     def self.travis_api_token
       @travis_api_token ||= ENV["TRAVIS_API_TOKEN"]
     end
@@ -155,7 +163,7 @@ module ManageIQ
           :access_token  => github_api_token,
           :auto_paginate => true
         }
-        params[:api_endpoint] = ENV["GITHUB_API_ENDPOINT"] if ENV["GITHUB_API_ENDPOINT"]
+        params[:api_endpoint] = github_api_endpoint if github_api_endpoint
 
         require 'octokit'
         Octokit::Client.new(params)
